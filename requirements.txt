@@ -1,0 +1,4 @@
+gspread
+requests
+arabic-reshaper
+python-bidi
