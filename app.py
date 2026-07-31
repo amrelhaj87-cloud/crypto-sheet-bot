@@ -22,12 +22,17 @@ print("🚀 Bot started monitoring trades...")
 
 while True:
     try:
-        # Read target prices and status from row 2
+        # Read status from row 2
         status = worksheet.acell("I2").value
         
         if status == "Open":
-            tp = float(worksheet.acell("G2").value)
-            sl = float(worksheet.acell("H2").value)
+            # Read target values and handle string commas (e.g. '66,180.45')
+            raw_tp = str(worksheet.acell("G2").value).replace(',', '')
+            raw_sl = str(worksheet.acell("H2").value).replace(',', '')
+            
+            tp = float(raw_tp)
+            sl = float(raw_sl)
+            
             current_price = get_btc_price()
             
             if current_price:
