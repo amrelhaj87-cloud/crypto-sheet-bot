@@ -9,13 +9,29 @@ sh = gc.open("Binance Crypto Bot Journal")
 worksheet = sh.sheet1
 
 def get_btc_price():
-    url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+    # Adding headers to bypass cloud servers block
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+    }
+    
+    # Try Binance API
     try:
-        response = requests.get(url)
+        url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+        response = requests.get(url, headers=headers, timeout=10)
         data = response.json()
-        return float(data["price"])
+        if "price" in data:
+            return float(data["price"])
     except Exception as e:
-        print(f"Error fetching price: {e}")
+        pass
+
+    # Backup API (CoinGecko) if Binance blocks the IP
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+        response = requests.get(url, headers=headers, timeout=10)
+        data = response.json()
+        return float(data["bitcoin"]["usd"])
+    except Exception as e:
+        print(f"Error fetching price from fallback: {e}")
         return None
 
 print("🚀 Bot started monitoring trades...")
@@ -45,6 +61,8 @@ while True:
                 elif current_price <= sl:
                     worksheet.update_acell("I2", "SL Hit")
                     print("🛑 Stop Loss (SL) Hit! Sheet updated.")
+            else:
+                print("⚠️ Couldn't fetch price, retrying next loop...")
         else:
             timestamp = time.strftime("%H:%M:%S")
             print(f"[{timestamp}] Trade status is '{status}'. Waiting...")
