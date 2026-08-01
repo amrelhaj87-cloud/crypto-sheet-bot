@@ -8,8 +8,8 @@ import os
 # TELEGRAM NOTIFICATION CONFIG (OPTIONAL)
 # ==========================================
 # اتركها فارغة إذا لم تكن تريد التليجرام، أو أدخل بياناتك للحصول على إشعارات فورية
-TELEGRAM_BOT_TOKEN = "" 
-TELEGRAM_CHAT_ID = ""   
+TELEGRAM_BOT_TOKEN = "8821314570:AAFp7Y2NM0CFeWtdMCmmLA6TBXU7MMPbQTA" 
+TELEGRAM_CHAT_ID = "27755694"   
 
 def send_telegram_msg(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
