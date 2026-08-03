@@ -7,8 +7,8 @@ import traceback
 # ==========================================
 # CONFIGURATION
 # ==========================================
-TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"  # ضع توكن التليجرام هنا
-TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"      # ضع Chat ID هنا
+TELEGRAM_BOT_TOKEN = "8821314570:AAFp7Y2NM0CFeWtdMCmmLA6TBXU7MMPbQTA"  # ضع توكن التليجرام هنا
+TELEGRAM_CHAT_ID = "27755694"      # ضع Chat ID هنا
 SYMBOL = "BTCUSDT"
 INITIAL_BALANCE = 1000.0
 
@@ -28,13 +28,23 @@ def send_telegram(message):
         print(f"❌ Failed to send Telegram message: {e}")
 
 # ==========================================
-# TECHNICAL INDICATORS
+# TECHNICAL INDICATORS & DATA FETCHING
 # ==========================================
 def fetch_klines(symbol='BTCUSDT', interval='15m', limit=205):
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    res = urllib.request.urlopen(req, timeout=10)
-    return json.loads(res.read().decode('utf-8'))
+    # المحاولة الأولى: السحب من CoinGecko
+    try:
+        url = "https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=1"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        res = urllib.request.urlopen(req, timeout=10)
+        raw_data = json.loads(res.read().decode('utf-8'))
+        return [[item[0], item[1], item[2], item[3], item[4]] for item in raw_data[-limit:]]
+    except Exception:
+        # المحاولة الثانية (Fallback): السحب من CryptoCompare لتفادي 429 أو 451
+        url = "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=200"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        res = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(res.read().decode('utf-8'))['Data']['Data']
+        return [[d['time']*1000, d['open'], d['high'], d['low'], d['close']] for d in data]
 
 def calculate_ema(closes, period=200):
     ema = [closes[0]] * len(closes)
@@ -57,7 +67,7 @@ def calculate_rsi(closes, period=14):
     return rsi
 
 # ==========================================
-# PAPER TRADER ENGINE (PROTECTED LOOP)
+# PAPER TRADER ENGINE
 # ==========================================
 class RobustPaperTrader:
     def __init__(self):
@@ -121,12 +131,12 @@ def main():
     while True:
         try:
             trader.run_tick()
-            time.sleep(30)
+            time.sleep(60)  # الانتظار دقيقة كاملة لمنع Rate limit 429
         except Exception as e:
             err_details = traceback.format_exc()
             print(f"⚠️ Error encountered: {e}")
             send_telegram(f"⚠️ *ALERT: Bot Encountered Error*\n`{str(e)}`\n\n_Retrying in 60 seconds..._")
-            time.sleep(60)  # Safe wait before auto-recovery
+            time.sleep(60)
 
 if __name__ == "__main__":
     main()
