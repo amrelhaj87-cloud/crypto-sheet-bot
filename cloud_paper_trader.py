@@ -3,16 +3,18 @@ import json
 import time
 import datetime
 import os
+import csv
 import traceback
 
 # ==========================================
 # CONFIGURATION
 # ==========================================
-TELEGRAM_BOT_TOKEN = "8821314570:AAFp7Y2NM0CFeWtdMCmmLA6TBXU7MMPbQTA"
-TELEGRAM_CHAT_ID = "27755694"
+TELEGRAM_BOT_TOKEN = "8821314570:AAFp7Y2NM0CFeWtdMCmmLA6TBXU7MMPbQTA"  # ضع توكن التليجرام هنا
+TELEGRAM_CHAT_ID = "27755694"      # ضع Chat ID هنا
 SYMBOL = "BTCUSDT"
 INITIAL_BALANCE = 1000.0
 STATE_FILE = "state.json"
+JOURNAL_FILE = "trades_journal.csv"
 
 # ==========================================
 # TELEGRAM NOTIFIER WITH ERROR HANDLING
@@ -33,7 +35,6 @@ def send_telegram(message):
 # TECHNICAL INDICATORS & DATA FETCHING
 # ==========================================
 def fetch_klines(symbol='BTCUSDT', interval='15m', limit=205):
-    # المحاولة الأولى: السحب من CoinGecko
     try:
         url = "https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=1"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
@@ -41,7 +42,6 @@ def fetch_klines(symbol='BTCUSDT', interval='15m', limit=205):
         raw_data = json.loads(res.read().decode('utf-8'))
         return [[item[0], item[1], item[2], item[3], item[4]] for item in raw_data[-limit:]]
     except Exception:
-        # المحاولة الثانية (Fallback): السحب من CryptoCompare لتفادي 429 أو 451
         url = "https://min-api.cryptocompare.com/data/v2/histominute?fsym=BTC&tsym=USD&limit=200"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         res = urllib.request.urlopen(req, timeout=10)
@@ -69,15 +69,15 @@ def calculate_rsi(closes, period=14):
     return rsi
 
 # ==========================================
-# PAPER TRADER ENGINE WITH PERSISTENCE
+# PAPER TRADER ENGINE WITH EXCEL/CSV JOURNALING
 # ==========================================
 class RobustPaperTrader:
     def __init__(self):
         self.symbol = SYMBOL
         self.last_heartbeat = time.time()
-        self.heartbeat_interval = 43200  # 12 Hours in seconds
+        self.heartbeat_interval = 43200  # 12 Hours in seconds (مرتين في اليوم)
         
-        # تحميل البيانات السابقة أو إنشاء ملف جديد
+        self.init_journal()
         self.load_state()
         
         send_telegram(
@@ -88,8 +88,37 @@ class RobustPaperTrader:
             f"• Active Trade: `{ 'YES' if self.position else 'NO' }`"
         )
 
+    def init_journal(self):
+        """إنشاء ملف سجل الصفقات بالأنواع المطلوبة إذا لم يكن موجوداً"""
+        if not os.path.exists(JOURNAL_FILE):
+            try:
+                with open(JOURNAL_FILE, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        'Date & Time', 'Pair', 'Type', 'Entry Price', 
+                        'Exit Price', 'Amount ($)', 'Units', 'PnL (%)', 'Status', 'Balance'
+                    ])
+                print("📊 Trades journal CSV created successfully.")
+            except Exception as e:
+                print(f"⚠️ Error creating journal file: {e}")
+
+    def log_trade(self, trade_type, entry_price, exit_price, amount, units, pnl_pct, status):
+        """تسجيل الصفقة في ملف السجل فوراً"""
+        try:
+            now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            with open(JOURNAL_FILE, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    now_str, self.symbol, trade_type, f"{entry_price:.2f}",
+                    f"{exit_price:.2f}" if exit_price else "N/A",
+                    f"{amount:.2f}", f"{units:.6f}",
+                    f"{pnl_pct:+.2f}%" if pnl_pct is not None else "0.00%",
+                    status, f"{self.balance:.2f}"
+                ])
+        except Exception as e:
+            print(f"⚠️ Failed to write to trade journal: {e}")
+
     def load_state(self):
-        """تحميل الرصيد والصفقة من ملف JSON في السيرفر"""
         if os.path.exists(STATE_FILE):
             try:
                 with open(STATE_FILE, 'r') as f:
@@ -99,14 +128,13 @@ class RobustPaperTrader:
                     print(f"📦 Loaded state successfully! Balance: ${self.balance:.2f}")
                     return
             except Exception as e:
-                print(f"⚠️ Failed to load state file, fallback to defaults: {e}")
+                print(f"⚠️ Failed to load state file: {e}")
         
         self.balance = INITIAL_BALANCE
         self.position = None
         self.save_state()
 
     def save_state(self):
-        """حفظ الرصيد والصفقة الحالية تلقائياً"""
         try:
             state = {
                 'balance': self.balance,
@@ -119,7 +147,7 @@ class RobustPaperTrader:
 
     def send_heartbeat(self, current_price, rsi, is_uptrend):
         status_msg = (
-            f"🟢 *HEARTBEAT: Bot is Active & Running*\n"
+            f"🟢 *HEARTBEAT (12H Update)*\n"
             f"• Date: `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n"
             f"• Price: `${current_price:,.2f}`\n"
             f"• RSI: `{rsi:.1f}` | Uptrend: `{is_uptrend}`\n"
@@ -139,20 +167,24 @@ class RobustPaperTrader:
 
         print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Price: ${price:,.2f} | EMA200: ${ema200:,.2f} | RSI: {rsi:.1f}")
 
-        # Send Heartbeat every 12 Hours
+        # التقرير النصف يومي (كل 12 ساعة)
         if time.time() - self.last_heartbeat >= self.heartbeat_interval:
             self.send_heartbeat(price, rsi, is_uptrend)
             self.last_heartbeat = time.time()
 
-        # Check Entry Signal
+        # إشارة الشراء (Buy)
         if not self.position and is_uptrend and rsi < 28:
             amt = self.balance * 0.5
-            self.position = {'price': price, 'amount': amt, 'units': amt / price}
+            units = amt / price
+            self.position = {'price': price, 'amount': amt, 'units': units}
             self.balance -= amt
-            self.save_state()  # حفظ الشراء تلقائياً
+            
+            self.save_state()
+            self.log_trade('BUY', price, None, amt, units, 0.0, 'OPEN')
+            
             send_telegram(f"🟢 *PAPER BUY EXECUTED*\n• Entry: `${price:,.2f}`\n• Amount: `${amt:.2f}`")
 
-        # Check Exit Signal
+        # إشارة الخروج وإغلاق الصفقة (Sell / Close)
         elif self.position:
             entry_price = self.position['price']
             pnl = (price - entry_price) / entry_price
@@ -160,10 +192,19 @@ class RobustPaperTrader:
             if pnl >= 0.015 or pnl <= -0.020:
                 ret = self.position['amount'] * (1 + pnl)
                 self.balance += (ret - (ret * 0.00075))
-                status = "🟢 PROFIT" if pnl > 0 else "🔴 LOSS"
-                send_telegram(f"{status} *POSITION CLOSED*\n• PnL: `{pnl*100:+.2f}%`\n• New Balance: `${self.balance:.2f}`")
+                status = "PROFIT" if pnl > 0 else "LOSS"
+                
+                self.log_trade('SELL', entry_price, price, self.position['amount'], self.position['units'], pnl * 100, status)
+                
+                send_telegram(
+                    f"{'🟢' if pnl > 0 else '🔴'} *POSITION CLOSED ({status})*\n"
+                    f"• Entry: `${entry_price:,.2f}` | Exit: `${price:,.2f}`\n"
+                    f"• PnL: `{pnl*100:+.2f}%`\n"
+                    f"• New Balance: `${self.balance:.2f}`"
+                )
+                
                 self.position = None
-                self.save_state()  # حفظ حالة إغلاق الصفقة
+                self.save_state()
 
 def main():
     trader = RobustPaperTrader()
@@ -171,7 +212,7 @@ def main():
     while True:
         try:
             trader.run_tick()
-            time.sleep(60)  # الانتظار دقيقة كاملة لمنع Rate limit 429
+            time.sleep(60)
         except Exception as e:
             err_details = traceback.format_exc()
             print(f"⚠️ Error encountered: {e}")
