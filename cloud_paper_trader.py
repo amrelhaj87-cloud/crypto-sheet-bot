@@ -19,7 +19,6 @@ CSV_FILE_PATH = os.path.expanduser('~/mybot/trades_journal.csv')
 # ==========================================
 # 2. متغيرات حالة البوت (State Variables)
 # ==========================================
-# يمكنك تحديث هذه المتغيرات داخل حلقة التداول الرئيسية (Trading Loop)
 current_price = 64962.00
 current_rsi = 69.7
 is_uptrend = True
@@ -100,13 +99,13 @@ def scheduled_daily_reports():
             if hour == 12 and not sent_noon:
                 send_telegram_message(get_status_report())
                 sent_noon = True
-                sent_midnight = False  # إعادة ضبط لمنع التكرار
+                sent_midnight = False
                 
             # الساعة 00:00 منتصف الليل
             elif hour == 0 and not sent_midnight:
                 send_telegram_message(get_status_report())
                 sent_midnight = True
-                sent_noon = False  # إعادة ضبط لمنع التكرار
+                sent_noon = False
                 
             # إعادة الضبط في باقي الساعات
             if hour not in [12, 0]:
@@ -116,10 +115,10 @@ def scheduled_daily_reports():
         except Exception as e:
             print(f"Scheduler error: {e}")
             
-        time.sleep(30)  # الفحص كل 30 ثانية
+        time.sleep(30)
 
 # ==========================================
-# 7. خادم استماع الأوامر من التليجرام
+# 7. خادم استماع الأوامر (مقتصر على /file و /update)
 # ==========================================
 def telegram_command_listener():
     offset = 0
@@ -135,16 +134,16 @@ def telegram_command_listener():
                     message = update.get("message", {})
                     text = message.get("text", "").strip()
                     
-                    # أمر طلب ملف سجل الصفقات
-                    if text in ['/excel', '/file']:
+                    # 1. أمر الحصول على الملف
+                    if text == '/file':
                         send_excel_file()
                         
-                    # أمر طلب حالة البوت والسعر والحساب
-                    elif text in ['/status', '/update', '/price', '/report']:
+                    # 2. أمر الحصول على التحديث المباشر
+                    elif text == '/update':
                         send_telegram_message(get_status_report())
                         
         except Exception as e:
-            time.sleep(5)  # إعادة المحاولة عند انقطاع الشبكة
+            time.sleep(5)
 
 # ==========================================
 # 8. تشغيل البوت والمحرك الأساسي
@@ -162,20 +161,12 @@ def main():
     )
     send_telegram_message(start_msg)
     
-    # تشغيل مستمع التليجرام في Thread منفصل
-    listener_thread = threading.Thread(target=telegram_command_listener, daemon=True)
-    listener_thread.start()
-    
-    # تشغيل مجدول التقارير اليومية في Thread منفصل
-    scheduler_thread = threading.Thread(target=scheduled_daily_reports, daemon=True)
-    scheduler_thread.start()
+    # تشغيل الأوامر والجدولة في الخلفية
+    threading.Thread(target=telegram_command_listener, daemon=True).start()
+    threading.Thread(target=scheduled_daily_reports, daemon=True).start()
     
     # الحلقة الرئيسية للتداول (Trading Loop)
     while True:
-        # هنا يتم تحديث متغيرات السعر والـ RSI والرصيد دورياً
-        # global current_price, current_rsi, is_uptrend, current_balance, is_active_trade
-        # current_price = fetch_latest_price()
-        
         time.sleep(60)
 
 if __name__ == "__main__":
