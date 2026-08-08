@@ -9,8 +9,8 @@ import traceback
 # ==========================================
 # CONFIGURATION
 # ==========================================
-TELEGRAM_BOT_TOKEN = "8821314570:AAFp7Y2NM0CFeWtdMCmmLA6TBXU7MMPbQTA"  # ضع توكن التليجرام هنا
-TELEGRAM_CHAT_ID = "27755694"      # ضع Chat ID هنا
+TELEGRAM_BOT_TOKEN = "8821314570:AAFp7Y2NM0CFeWtdMCmmLA6TBXU7MMPbQTA"  # ضَع توكن التليجرام هنا
+TELEGRAM_CHAT_ID = "27755694"      # ضَع Chat ID هنا
 SYMBOL = "BTCUSDT"
 INITIAL_BALANCE = 1000.0
 STATE_FILE = "state.json"
@@ -69,7 +69,7 @@ def calculate_rsi(closes, period=14):
     return rsi
 
 # ==========================================
-# PAPER TRADER ENGINE WITH EXCEL/CSV JOURNALING
+# PAPER TRADER ENGINE WITH EXCEL & TELEGRAM
 # ==========================================
 class RobustPaperTrader:
     def __init__(self):
@@ -89,7 +89,7 @@ class RobustPaperTrader:
         )
 
     def init_journal(self):
-        """إنشاء ملف سجل الصفقات بالأنواع المطلوبة إذا لم يكن موجوداً"""
+        """إنشاء ملف سجل الصفقات إذا لم يكن موجوداً"""
         if not os.path.exists(JOURNAL_FILE):
             try:
                 with open(JOURNAL_FILE, 'w', newline='', encoding='utf-8') as f:
@@ -103,9 +103,9 @@ class RobustPaperTrader:
                 print(f"⚠️ Error creating journal file: {e}")
 
     def log_trade(self, trade_type, entry_price, exit_price, amount, units, pnl_pct, status):
-        """تسجيل الصفقة في ملف السجل فوراً"""
+        """تسجيل الصفقة محلياً وإرسال ملخص فوري للتليجرام"""
+        now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         try:
-            now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             with open(JOURNAL_FILE, 'a', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow([
@@ -147,7 +147,7 @@ class RobustPaperTrader:
 
     def send_heartbeat(self, current_price, rsi, is_uptrend):
         status_msg = (
-            f"🟢 *HEARTBEAT (12H Update)*\n"
+            f"🟢 *HEARTBEAT (12H Summary)*\n"
             f"• Date: `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n"
             f"• Price: `${current_price:,.2f}`\n"
             f"• RSI: `{rsi:.1f}` | Uptrend: `{is_uptrend}`\n"
@@ -167,12 +167,12 @@ class RobustPaperTrader:
 
         print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Price: ${price:,.2f} | EMA200: ${ema200:,.2f} | RSI: {rsi:.1f}")
 
-        # التقرير النصف يومي (كل 12 ساعة)
+        # التقرير الدائم مرتين في اليوم (كل 12 ساعة)
         if time.time() - self.last_heartbeat >= self.heartbeat_interval:
             self.send_heartbeat(price, rsi, is_uptrend)
             self.last_heartbeat = time.time()
 
-        # إشارة الشراء (Buy)
+        # إشارة الشراء (Buy Signal)
         if not self.position and is_uptrend and rsi < 28:
             amt = self.balance * 0.5
             units = amt / price
@@ -182,9 +182,17 @@ class RobustPaperTrader:
             self.save_state()
             self.log_trade('BUY', price, None, amt, units, 0.0, 'OPEN')
             
-            send_telegram(f"🟢 *PAPER BUY EXECUTED*\n• Entry: `${price:,.2f}`\n• Amount: `${amt:.2f}`")
+            # إرسال تنبيه تفصيلي فور الشراء
+            send_telegram(
+                f"📥 *NEW TRADE EXECUTED (BUY)*\n"
+                f"• Pair: `{self.symbol}`\n"
+                f"• Entry Price: `${price:,.2f}`\n"
+                f"• Invested: `${amt:.2f}`\n"
+                f"• BTC Acquired: `{units:.6f}`\n"
+                f"• Remaining Cash: `${self.balance:.2f}`"
+            )
 
-        # إشارة الخروج وإغلاق الصفقة (Sell / Close)
+        # إشارة الخروج والبيع (Sell / Close Signal)
         elif self.position:
             entry_price = self.position['price']
             pnl = (price - entry_price) / entry_price
@@ -196,11 +204,14 @@ class RobustPaperTrader:
                 
                 self.log_trade('SELL', entry_price, price, self.position['amount'], self.position['units'], pnl * 100, status)
                 
+                # إرسال تقرير إغلاق الصفقة وتفاصيل النتيجة على التليجرام
                 send_telegram(
-                    f"{'🟢' if pnl > 0 else '🔴'} *POSITION CLOSED ({status})*\n"
-                    f"• Entry: `${entry_price:,.2f}` | Exit: `${price:,.2f}`\n"
-                    f"• PnL: `{pnl*100:+.2f}%`\n"
-                    f"• New Balance: `${self.balance:.2f}`"
+                    f"{'✅' if pnl > 0 else '❌'} *TRADE CLOSED ({status})*\n"
+                    f"• Pair: `{self.symbol}`\n"
+                    f"• Entry Price: `${entry_price:,.2f}`\n"
+                    f"• Exit Price: `${price:,.2f}`\n"
+                    f"• Return PnL: `{pnl*100:+.2f}%` (`${(ret - self.position['amount']):+.2f}`)\n"
+                    f"• New Total Balance: `${self.balance:.2f}`"
                 )
                 
                 self.position = None
@@ -216,7 +227,7 @@ def main():
         except Exception as e:
             err_details = traceback.format_exc()
             print(f"⚠️ Error encountered: {e}")
-            send_telegram(f"⚠️ *ALERT: Bot Encountered Error*\n`{str(e)}`\n\n_Retrying in 60 seconds..._")
+            send_telegram(f"⚠️ *ALERT: Bot Error*\n`{str(e)}`")
             time.sleep(60)
 
 if __name__ == "__main__":
