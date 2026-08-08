@@ -2,12 +2,12 @@ import os
 import time
 import threading
 import requests
+from datetime import datetime
 from dotenv import load_dotenv
 
 # ==========================================
 # 1. تحميل التوكن والـ Chat ID من ملف .env
 # ==========================================
-# يقرأ الملف الموجود في مجلد المشروع تلقائياً
 load_dotenv(os.path.expanduser('~/mybot/.env'))
 
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -17,7 +17,17 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 CSV_FILE_PATH = os.path.expanduser('~/mybot/trades_journal.csv')
 
 # ==========================================
-# 2. دالة إرسال الرسائل النصية للتليجرام
+# 2. متغيرات حالة البوت (State Variables)
+# ==========================================
+# يمكنك تحديث هذه المتغيرات داخل حلقة التداول الرئيسية (Trading Loop)
+current_price = 64962.00
+current_rsi = 69.7
+is_uptrend = True
+current_balance = 1000.00
+is_active_trade = False
+
+# ==========================================
+# 3. دالة إرسال الرسائل النصية للتليجرام
 # ==========================================
 def send_telegram_message(message):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -36,7 +46,24 @@ def send_telegram_message(message):
         print(f"Error sending message: {e}")
 
 # ==========================================
-# 3. دالة إرسال ملف الإكسيل/CSV للتليجرام
+# 4. دالة إنشاء رسالة حالة البوت (Status Report)
+# ==========================================
+def get_status_report():
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    trade_status = 'YES' if is_active_trade else 'NO'
+    
+    status_msg = (
+        f"🟢 *HEARTBEAT: Bot is Active & Running*\n"
+        f"• *Date:* `{now_str}`\n"
+        f"• *Price:* `${current_price:,.2f}`\n"
+        f"• *RSI:* `{current_rsi:.1f}` | *Uptrend:* `{is_uptrend}`\n"
+        f"• *Balance:* `${current_balance:,.2f}`\n"
+        f"• *Active Trade:* `{trade_status}`"
+    )
+    return status_msg
+
+# ==========================================
+# 5. دالة إرسال ملف الإكسيل/CSV للتليجرام
 # ==========================================
 def send_excel_file():
     if not os.path.exists(CSV_FILE_PATH):
@@ -57,7 +84,42 @@ def send_excel_file():
         print(f"Error sending file: {e}")
 
 # ==========================================
-# 4. خادم استماع للأوامر من التليجرام (/excel)
+# 6. جدولة إرسال التقرير (12 ظهراً و 12 منتصف الليل)
+# ==========================================
+def scheduled_daily_reports():
+    sent_noon = False
+    sent_midnight = False
+    print("Daily Scheduler Thread Started...")
+    
+    while True:
+        try:
+            now = datetime.now()
+            hour = now.hour
+            
+            # الساعة 12:00 ظهراً
+            if hour == 12 and not sent_noon:
+                send_telegram_message(get_status_report())
+                sent_noon = True
+                sent_midnight = False  # إعادة ضبط لمنع التكرار
+                
+            # الساعة 00:00 منتصف الليل
+            elif hour == 0 and not sent_midnight:
+                send_telegram_message(get_status_report())
+                sent_midnight = True
+                sent_noon = False  # إعادة ضبط لمنع التكرار
+                
+            # إعادة الضبط في باقي الساعات
+            if hour not in [12, 0]:
+                sent_noon = False
+                sent_midnight = False
+
+        except Exception as e:
+            print(f"Scheduler error: {e}")
+            
+        time.sleep(30)  # الفحص كل 30 ثانية
+
+# ==========================================
+# 7. خادم استماع الأوامر من التليجرام
 # ==========================================
 def telegram_command_listener():
     offset = 0
@@ -73,15 +135,19 @@ def telegram_command_listener():
                     message = update.get("message", {})
                     text = message.get("text", "").strip()
                     
-                    # التحقق من الأمر
-                    if text in ['/excel', '/report', '/file']:
+                    # أمر طلب ملف سجل الصفقات
+                    if text in ['/excel', '/file']:
                         send_excel_file()
                         
+                    # أمر طلب حالة البوت والسعر والحساب
+                    elif text in ['/status', '/update', '/price', '/report']:
+                        send_telegram_message(get_status_report())
+                        
         except Exception as e:
-            time.sleep(5)  # إعادة المحاولة في حالة انقطاع الشبكة
+            time.sleep(5)  # إعادة المحاولة عند انقطاع الشبكة
 
 # ==========================================
-# 5. تشغيل البوت والمحرك الأساسي
+# 8. تشغيل البوت والمحرك الأساسي
 # ==========================================
 def main():
     print("Starting Crypto Paper Trader Engine...")
@@ -96,14 +162,20 @@ def main():
     )
     send_telegram_message(start_msg)
     
-    # تشغيل مستمع التليجرام في Thread منفصل حتى لا يعطل محرك التداول
+    # تشغيل مستمع التليجرام في Thread منفصل
     listener_thread = threading.Thread(target=telegram_command_listener, daemon=True)
     listener_thread.start()
     
+    # تشغيل مجدول التقارير اليومية في Thread منفصل
+    scheduler_thread = threading.Thread(target=scheduled_daily_reports, daemon=True)
+    scheduler_thread.start()
+    
     # الحلقة الرئيسية للتداول (Trading Loop)
     while True:
-        # هنا يتم تنفيذ خوارزمية التداول الخاصة بك
-        # print("Bot is analyzing market...")
+        # هنا يتم تحديث متغيرات السعر والـ RSI والرصيد دورياً
+        # global current_price, current_rsi, is_uptrend, current_balance, is_active_trade
+        # current_price = fetch_latest_price()
+        
         time.sleep(60)
 
 if __name__ == "__main__":
