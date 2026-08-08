@@ -1,7 +1,9 @@
 import os
+import sys
 import time
 import threading
 import requests
+import subprocess
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -35,7 +37,9 @@ def setup_telegram_menu():
     commands = {
         "commands": [
             {"command": "update", "description": "🟢 إرسال تقرير حالة البوت والسعر الحالي"},
-            {"command": "file", "description": "📊 تحميل ملف سجل الصفقات (Excel/CSV)"}
+            {"command": "file", "description": "📊 تحميل ملف سجل الصفقات (Excel/CSV)"},
+            {"command": "restart", "description": "🔄 إعادة تشغيل البوت"},
+            {"command": "pull", "description": "⬇️ سحب أحدث كود من GitHub وإعادة التشغيل"}
         ]
     }
     try:
@@ -102,7 +106,27 @@ def send_excel_file():
         print(f"Error sending file: {e}")
 
 # ==========================================
-# 7. جدولة إرسال التقرير (12 ظهراً و 12 منتصف الليل)
+# 7. دالتا الريستارت والـ Git Pull
+# ==========================================
+def handle_restart():
+    send_telegram_message("🔄 *جاري إعادة تشغيل البوت...*")
+    time.sleep(1)
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+def handle_git_pull_and_restart():
+    send_telegram_message("⏳ *جاري سحب أحدث كود من GitHub...*")
+    try:
+        result = subprocess.run(["git", "pull"], capture_output=True, text=True, check=True)
+        out_msg = result.stdout.strip() if result.stdout else "Up to date."
+        send_telegram_message(f"✅ *تم التحديث من GitHub بنجاح:*\n```\n{out_msg}\n```")
+        send_telegram_message("🔄 *جاري إعادة التشغيل لتطبيق التحديثات...*")
+        time.sleep(1)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        send_telegram_message(f"❌ *حدث خطأ أثناء السحب من Git:*\n`{str(e)}`")
+
+# ==========================================
+# 8. جدولة إرسال التقرير (12 ظهراً و 12 منتصف الليل)
 # ==========================================
 def scheduled_daily_reports():
     sent_noon = False
@@ -137,7 +161,7 @@ def scheduled_daily_reports():
         time.sleep(30)
 
 # ==========================================
-# 8. خادم استماع الأوامر (/file و /update)
+# 9. خادم استماع الأوامر (/file, /update, /restart, /pull)
 # ==========================================
 def telegram_command_listener():
     offset = 0
@@ -157,12 +181,16 @@ def telegram_command_listener():
                         send_excel_file()
                     elif text == '/update':
                         send_telegram_message(get_status_report())
+                    elif text == '/restart':
+                        handle_restart()
+                    elif text == '/pull':
+                        handle_git_pull_and_restart()
                         
         except Exception as e:
             time.sleep(5)
 
 # ==========================================
-# 9. تشغيل البوت والمحرك الأساسي
+# 10. تشغيل البوت والمحرك الأساسي
 # ==========================================
 def main():
     print("Starting Crypto Paper Trader Engine...")
