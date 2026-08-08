@@ -9,7 +9,7 @@ import traceback
 # ==========================================
 # CONFIGURATION
 # ==========================================
-TELEGRAM_BOT_TOKEN = "8821314570:AAFp7Y2NM0CFeWtdMCmmLA6TBXU7MMPbQTA"  # ضَع توكن التليجرام هنا
+TELEGRAM_BOT_TOKEN = "8821314570:AAG0ovP7V8gCehRjpd8iYv6gKF_U6_YLosg"  # ضَع توكن التليجرام هنا
 TELEGRAM_CHAT_ID = "27755694"      # ضَع Chat ID هنا
 SYMBOL = "BTCUSDT"
 INITIAL_BALANCE = 1000.0
